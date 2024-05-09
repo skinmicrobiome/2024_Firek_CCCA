@@ -1,0 +1,492 @@
+---
+title: "Figure 1A-1C"
+author: Alexandra Firek
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r}
+rm(list=ls())
+library(phyloseq)
+library(ggplot2)
+library(tidyverse)
+library(plotly)
+# library(ggvegan)
+# library(genefilter)
+library(ggpubr)
+library(readxl)
+library(ggplot2)
+library(biomformat)
+library(dplyr)
+library(openxlsx)
+library(vegan)
+library(reshape2)  
+```
+
+```{r}
+#imported biom file into phyloseq object
+bracken.genera.phy <- import_biom("bracken_genus.biom", parseFunction = parse_taxonomy_greengenes)
+bracken.genera.phy <- subset_taxa(bracken.genera.phy, !is.na(Phylum))
+bracken.genera.phy <- subset_taxa(bracken.genera.phy, !Kingdom %in% c('Archaea'))
+bracken.genera.phy <- subset_taxa(bracken.genera.phy, !Genus %in% c('Homo', 'Toxoplasma', 'Babesia', 'Leishmania'))
+
+#fix sample names to remove _bracken_genuses
+sample_names(bracken.genera.phy) = stringr::str_remove_all(sample_names(bracken.genera.phy), "_bracken_genuses")
+
+map = read.csv("data_files/all_ccca_data.csv")
+rownames(map) = map$library_id
+
+#convert to phyloseq
+map = sample_data(map)
+rownames(map) = map$library_id
+
+#remove "_bracken_genuses" from sample names in the map object
+map$library_id <- stringr::str_remove_all(map$library_id, "_bracken_genuses")
+
+generaphy = merge_phyloseq(bracken.genera.phy, map)
+
+#remove Vx sample with less reads than controls
+generaphy <- subset_samples(generaphy, library_id != "Met6532") 
+
+#filter samples based on site_specific
+generaphy <- subset_samples(generaphy, site_specific %in% c('Vx', 'Oc', 'Vf', 'Ic'))
+```
+
+get rid of Species NA column
+```{r}
+tax_data <- tax_table(generaphy)
+
+tax_df <- as.data.frame(tax_data)
+
+if("Species" %in% colnames(tax_df)){
+  tax_df$Species <- NULL}
+
+#convert back to matrix and update the tax_table in phyloseq object
+new_tax_table <- tax_table(as.matrix(tax_df))
+
+#replace the existing tax_table in the phyloseq object with the new one
+tax_table(generaphy) <- new_tax_table
+```
+
+```{r}
+#add sample depth to the mapping table
+sample_data(generaphy)$sample_sums = sample_sums(generaphy)
+```
+
+```{r}
+#filter for CCCA
+generaphy_CCCA <- subset_samples(generaphy, group_id == "CCCA" & library_id != "Met6532")
+
+#calculate relative abundance for CCCA
+generaphy_CCCA_relative_abundance <- transform_sample_counts(generaphy_CCCA, function(x) x / sum(x))
+
+otu_df_CCCA <- otu_table(generaphy_CCCA_relative_abundance)
+
+#define the criteria: taxa (rows) where at least 5% of the samples (columns) have a value >= 0.001 (0.1%)
+criteria <- rowSums(otu_df_CCCA >= 0.001) >= ncol(otu_df_CCCA) * 0.05
+
+#use prune_taxa with the logical vector to filter the phyloseq object
+generaphy_CCCA_selected <- prune_taxa(criteria, generaphy_CCCA_relative_abundance)
+```
+
+```{r}
+#filter for Control
+generaphy_Control <- subset_samples(generaphy, group_id == "Control")
+
+#calculate relative abundance for Control
+generaphy_Control_relative_abundance <- transform_sample_counts(generaphy_Control, function(x) x / sum(x))
+
+otu_df_Control <- otu_table(generaphy_Control_relative_abundance)
+
+#define the criteria: taxa (rows) where at least 10% (5%) of the samples (columns) have a value >= 0.001
+criteria <- rowSums(otu_df_Control >= 0.001) >= ncol(otu_df_Control) * 0.05
+
+#use prune_taxa with the logical vector to filter the phyloseq object
+generaphy_Control_selected <- prune_taxa(criteria, generaphy_Control_relative_abundance)
+```
+
+```{r}
+#merge the two phyloseq objects
+generaphy_filtered <- merge_phyloseq(generaphy_CCCA_selected, generaphy_Control_selected)
+
+#checking dimensions of the original phyloseq object vs the merged phyloseq object
+print(dim(otu_table(generaphy)))
+
+print(dim(otu_table(generaphy_filtered)))
+```
+
+```{r}
+#extract taxa present in generaphy_filtered
+taxa_filtered <- taxa_names(generaphy_filtered)
+
+#subset generaphy by these taxa to get raw read counts for the same set of taxa
+genera_rescuedphy <- prune_taxa(taxa_filtered, generaphy)
+
+#checking dimensions of the merged phyloseq object
+print(dim(otu_table(genera_rescuedphy)))
+
+#calculate total reads in the original Phyloseq object
+total_reads_original <- sum(otu_table(generaphy))
+
+#calculate total reads in the new rescued Phyloseq object
+total_reads_rescued <- sum(otu_table(genera_rescuedphy))
+
+#calculate the fraction
+fraction_of_reads <- total_reads_rescued / total_reads_original
+
+print(fraction_of_reads)
+```
+
+Figure 1A
+```{r}
+genera_rescuedphy <- subset_samples(genera_rescuedphy, library_id != "Met6532")
+
+ra <- transform_sample_counts(genera_rescuedphy, function(x) x/sum(x))
+df <- cbind(data.frame(tax_table(ra)), data.frame(otu_table(ra)))
+#colnames(df) <- gsub('_bracken_genuses', '', colnames(df))
+df_sorted <- df[order(rowSums(df[, 7:ncol(df)]), decreasing=TRUE), ]
+saveRDS(df_sorted, file = 'rds_files/ccca_RA.rds')
+```
+
+create function for negate
+```{r}
+'%ni%' = Negate('%in%')
+```
+
+```{r}
+metadata_finder = function(df_data, df_meta){
+  subject_id = NULL
+  group_id = NULL
+  site = NULL
+  for (i in as.character(df_data$variable)){
+    subject_id = append(subject_id, df_meta$subject_id[df_meta$library_id == i])
+    group_id <- append(group_id, df_meta$group_id[df_meta$library_id == i])
+    site = append(site, df_meta$site_specific[df_meta$library_id== i])}
+  df_data$subject_id <- subject_id
+  df_data$cohort <- group_id
+  df_data$site <- site
+  return(df_data)}
+```
+
+TargetLvl function: this function processes the microbiome data to group it at various taxonomic levels and classify specific taxa of interest
+```{r}
+TargetLvl <- function(df_data, df_meta){
+  target_taxa <- c('Bacteria', 
+                   'Eukaryota',
+                   'Viruses')
+  df_origin <- df_data
+  taxa_only <- df_data[,c('Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus')]
+  df_data <- melt(df_data, id=c('Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus'))
+  df_data$Target <- df_data$Kingdom
+  df_data$Target <- factor(df_data$Target, levels=target_taxa)
+  df_data$Kingdom <- NULL
+  df_data$Phylum <- NULL
+  df_data$Class <- NULL
+  df_data$Order <- NULL
+  df_data$Family <- NULL
+  df_data$Genus <- NULL
+  
+  df_data <- data.frame(df_data %>% 
+                          group_by(variable, Target) %>% 
+                          summarise_all(list(sum)))
+  df_data <- metadata_finder(df_data, df_meta)
+  return(df_data)}
+```
+
+import RDS files for metadata
+```{r}
+ccca_meta = read.csv("data_files/all_ccca_data.csv")%>% 
+  select(library_id, group_id, site_specific, subject_id)
+ccca_RA <- readRDS('rds_files/ccca_RA.rds')
+```
+
+```{r}
+ccca_melt <- melt(ccca_RA, id=c('Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus'))
+ccca_melt$Target <- ccca_melt$Kingdom
+```
+
+```{r}
+TargetLvl <- function(df_data, df_meta) {
+  joinby <- 'library_id'
+  target_taxa <- c(
+    'Bacteria (other)',
+    'Actinomycetota (other)',
+    'Corynebacterium',
+    'Lawsonella',
+    'Cutibacterium',
+    'Micrococcus',
+    'Bacillota (other)',
+    'Staphylococcus',
+    'Streptococcus',
+    'Bacteroidota (other)',
+    'Prevotella',
+    'Pseudomonadota',
+    'Fungi (other)',
+    'Malassezia',
+    'Viruses'
+  )
+  
+  taxa_only <-
+    df_data[, c('Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus')]
+  df_data <-
+    melt(df_data,
+         id = c('Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus'))
+  df_data$Target <- df_data$Kingdom
+  
+  #genus
+  df_data$Target[df_data$Genus == 'Cutibacterium'] <- 'Cutibacterium'
+  df_data$Target[df_data$Genus == 'Lawsonella'] <- 'Lawsonella'
+  df_data$Target[df_data$Genus == 'Corynebacterium'] <- 'Corynebacterium'
+  df_data$Target[df_data$Genus == 'Micrococcus'] <- 'Micrococcus'
+  df_data$Target[df_data$Genus == 'Staphylococcus'] <- 'Staphylococcus'
+  df_data$Target[df_data$Genus == 'Streptococcus'] <- 'Streptococcus'
+  df_data$Target[df_data$Genus == 'Prevotella'] <- 'Prevotella'
+  df_data$Target[df_data$Genus == 'Malassezia'] <- 'Malassezia'
+  
+  #phylum
+  df_data$Target[df_data$Phylum == 'Actinomycetota' &
+                   !df_data$Genus %in% c('Cutibacterium',
+                                         'Lawsonella',
+                                         'Corynebacterium',
+                                         'Micrococcus')] <- 'Actinomycetota (other)'
+  df_data$Target[df_data$Phylum == 'Bacillota' &
+                   !df_data$Genus %in% c('Staphylococcus', 'Streptococcus')] <- 'Bacillota (other)'
+  df_data$Target[df_data$Phylum == 'Bacteroidota' &
+                   !df_data$Genus %in% c('Prevotella')] <- 'Bacteroidota (other)'
+  df_data$Target[df_data$Phylum == 'Pseudomonadota'] <- 'Pseudomonadota'
+  
+  #kingdom
+  df_data$Target[df_data$Kingdom == 'Bacteria' &
+                   !df_data$Phylum %in% c('Actinomycetota',
+                                          'Bacillota',
+                                          'Bacteroidota',
+                                          'Pseudomonadota')] <- 'Bacteria (other)'
+  df_data$Target[df_data$Kingdom == 'Eukaryota' &
+                   !df_data$Genus %in% c('Malassezia')] <- 'Fungi (other)'
+  df_data$Target[df_data$Kingdom == 'Viruses'] <- 'Viruses'
+  
+  df_data$Target <- factor(df_data$Target, levels = target_taxa)
+  df_data$Kingdom <- NULL
+  df_data$Phylum <- NULL
+  df_data$Class <- NULL
+  df_data$Order <- NULL
+  df_data$Family <- NULL
+  df_data$Genus <- NULL
+  
+  df_data <- data.frame(df_data %>% group_by(variable, Target) %>% summarise_all(list(sum)))
+  df_data <- metadata_finder(df_data, df_meta)
+  return(df_data)
+}
+
+df_data <- TargetLvl(ccca_RA, ccca_meta)
+df_data$cohort <- 'CCCA'
+df_data$cohort[df_data$subject_id %in% c('HC1', 'HC2', 'HC3', 'HC4', 'HC5', 'HC6', 'HC7')] <- 'Healthy Controls'
+df_data$cohort <- factor(df_data$cohort, levels=c('CCCA', 'Healthy Controls'))
+df_data$subject_id <- factor(df_data$subject_id, levels=c('P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12', 'HC1', 'HC2', 'HC3', 'HC4', 'HC5', 'HC6', 'HC7'))
+df_data$site <- factor(df_data$site, levels=c('Vx', 'Oc', 'Vf', 'Ic'))
+
+color_scheme <- c(
+  'Bacteria (other)' = "#FDEDE6",
+  'Actinomycetota (other)' = '#F8CAB3',
+     'Corynebacterium' = "#FF420D",
+     'Lawsonella' = "#0B775E",
+    'Cutibacterium' = "#80B8AB",
+      'Micrococcus' = "#D5E7E3", 
+    'Bacillota (other)' = '#31698A',
+   'Staphylococcus' = "#87A8BB",
+  'Streptococcus' = "#AFC5D2",
+    'Bacteroidota (other)' = '#6C8645',
+  'Prevotella' = "#BDC881",
+ 'Pseudomonadota' = '#EED36E',
+# 'Fungi (other)' = "#e7c6ff",
+  'Malassezia' = "#746FB3",
+  'Viruses' = "#A87F93")
+
+df_data <- df_data[df_data$site %in% c('Vx', 'Oc', 'Vf', 'Ic'), ]
+
+#update factor levels for 'site'
+df_data$site <- factor(df_data$site, levels = c('Vx', 'Oc', 'Vf', 'Ic'),
+                       labels = c('Vertex', 'Occiput', 'Volar Forearm', 'Inguinal Crease'))
+
+p = ggplot(df_data) +
+  aes(x = subject_id, y = value, fill = Target) +
+  geom_bar(stat = "identity", position = "fill", width = 0.8) +
+  facet_grid(site ~ cohort, scales = 'free_x', space = 'free_x') +
+  theme_bw() +
+  ylab('Relative Abundance (%)') +
+  scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1), labels = c('0', '', '50', '', '100'), limits = c(0, 1)) +
+  theme(axis.title.x = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.title.y = element_text(), axis.text.y = element_text()) +
+  theme(legend.key.size = unit(0.5, "cm"), panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+  theme(legend.position = 'right') +
+  theme(legend.box = "vertical", legend.title = element_text(), legend.text = element_text()) +
+  scale_fill_manual("Classification", values = color_scheme) +  
+  theme(strip.text.x = element_text(), strip.text.y = element_text(angle = 0, ), strip.background = element_rect(fill = "white")) +
+  guides(fill = guide_legend(reverse = FALSE, ncol = 1))
+
+print(p)
+
+ggsave("figures/Figure1A.pdf",
+       plot = p, width = 8, height = 6, dpi = 300)
+```
+
+```{r}
+#create a new column ccca_scale with default value "0"
+df_data$ccca_scale <- "0"
+
+#assign specific ccca_scale values for subject_ids
+df_data$ccca_scale[df_data$subject_id %in% c("P12")] <- "1A"
+df_data$ccca_scale[df_data$subject_id %in% c("P10", "P11")] <- "1B"
+df_data$ccca_scale[df_data$subject_id %in% c("P9", "P8")] <- "2B"
+df_data$ccca_scale[df_data$subject_id %in% c("P3","P4", "P5", "P6", "P7")] <- "3B"
+df_data$ccca_scale[df_data$subject_id %in% c("P2")] <- "4A"
+df_data$ccca_scale[df_data$subject_id %in% c("P1")] <- "5A"
+
+#create a new variable for grouped severity levels
+df_data$grouped_severity <- df_data$ccca_scale
+df_data$grouped_severity[df_data$ccca_scale %in% c("1A", "1B")] <- "1A-1B"
+df_data$grouped_severity[df_data$ccca_scale %in% c("2A", "2B")] <- "2A-2B"
+df_data$grouped_severity[df_data$ccca_scale %in% c("3A", "3B")] <- "3A-3B"
+df_data$grouped_severity[df_data$ccca_scale %in% c("4A", "4B")] <- "4A-4B"
+df_data$grouped_severity[df_data$ccca_scale %in% c("5A", "5B")] <- "5A-5B"
+
+palette_ccca_scale <- c("#FFFFFF", "#CCCCCC", "#999999", "#666666", "#333333", "#000000")
+names(palette_ccca_scale) <- c("0", "1A-1B", "2A-2B", "3A-3B", "4A-4B", "5A-5B")
+
+severity_tiles <- ggplot(df_data) +
+  geom_tile(aes(x = subject_id, y = 2, height = 1, fill = factor(grouped_severity, levels = names(palette_ccca_scale)))) +
+  scale_fill_manual("Severity Scale", values = palette_ccca_scale) +
+  theme_void() +
+  theme(legend.position = 'left')
+
+print(severity_tiles)
+#combine the plots using cowplot's plot_grid
+#combined_plot <- plot_grid(p, severity_tiles, nrow = 2, align = 'h', axis =  'b', rel_heights = c(1, 0.1))
+
+#display the combined plot
+#print(combined_plot)
+
+ggsave("figures/severity_tiles.pdf", 
+       plot = severity_tiles, width = 10, height = 2, dpi = 300)
+```
+
+Figure 1B
+```{r}
+genera_rescuedphy_Vx <- subset_samples(genera_rescuedphy, site_specific == "Vx")
+
+RA_filtered <- transform_sample_counts(genera_rescuedphy_Vx, function(x) x/sum(x))
+
+distance_matrix <- phyloseq::distance(RA_filtered, method = "bray")
+
+pcoa_results <- ordinate(RA_filtered, method = "PCoA", distance = distance_matrix)
+
+#extract eigenvalues
+eigenvalues <- pcoa_results$values$Eigenvalues
+
+#calculate the sum of absolute eigenvalues
+total_variation <- sum(eigenvalues[eigenvalues>0])
+
+#calculate the percentage of variance explained for the first two axes
+percent_variance1 <- (eigenvalues[1] / total_variation) * 100
+percent_variance2 <- (eigenvalues[2] / total_variation) * 100
+
+#extract PCoA scores and sample_data
+pcoa_data <- as.data.frame(pcoa_results$vectors)
+sample_info <- as.data.frame(sample_data(genera_rescuedphy))
+pcoa_data$library_id <- rownames(pcoa_data)
+pcoa_data <- left_join(pcoa_data, sample_info, by = "library_id")
+
+Vx_pcoa_plot <- ggplot(pcoa_data, aes(x = Axis.1, y = Axis.2, label = ccca_scale)) +
+  geom_point(aes(color=group_id, shape=group_id), size = 8, alpha = 0.6) +
+  geom_text(aes(color=group_id), hjust = 0, vjust = 2, size = 7, show.legend=FALSE) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, size = 1.5, aes(color=group_id, fill = group_id), show.legend=FALSE) +
+  theme_minimal() +
+  labs(
+    title = "Vertex Scalp",
+    x = paste0("PCoA1: ", round(percent_variance1, 2), "%"),
+    y = paste0("PCoA2: ", round(percent_variance2, 2), "%"),
+    color = "Cohort",
+    shape = "Cohort",
+    fill = "Cohort") +
+  scale_color_manual(values = c("CCCA" = "#35274A", "Control" = "#b8b8b8")) +
+  scale_fill_manual(values = c("CCCA" = "#35274A", "Control" = "#b8b8b8")) +
+  scale_shape_manual(values = c("CCCA" = 16, "Control" = 17)) +
+  theme(
+    plot.title = element_text(size = 24),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18))
+
+print(Vx_pcoa_plot)
+
+pcoa_data$group_id <- as.factor(pcoa_data$group_id)
+
+result <- adonis2(distance_matrix ~ group_id, data = pcoa_data, method = "bray")
+
+print(result)
+
+ggsave("figures/Figure1B.pdf",
+       plot = Vx_pcoa_plot, width = 10, height = 8)
+```
+
+Figure 1C
+```{r}
+genera_rescuedphy_Oc <- subset_samples(genera_rescuedphy, site_specific == "Oc")
+
+RA_filtered <- transform_sample_counts(genera_rescuedphy_Oc, function(x) x/sum(x))
+
+distance_matrix <- phyloseq::distance(RA_filtered, method = "bray")
+
+pcoa_results <- ordinate(RA_filtered, method = "PCoA", distance = distance_matrix)
+
+#extract eigenvalues
+eigenvalues <- pcoa_results$values$Eigenvalues
+
+#calculate the sum of absolute eigenvalues
+total_variation <- sum(eigenvalues[eigenvalues>0])
+
+#calculate the percentage of variance explained for the first two axes
+percent_variance1 <- (eigenvalues[1] / total_variation) * 100
+percent_variance2 <- (eigenvalues[2] / total_variation) * 100
+
+#extract PCoA scores and sample_data
+pcoa_data <- as.data.frame(pcoa_results$vectors)
+sample_info <- as.data.frame(sample_data(genera_rescuedphy))
+pcoa_data$library_id <- rownames(pcoa_data)
+pcoa_data <- left_join(pcoa_data, sample_info, by = "library_id")
+
+Oc_pcoa_plot <- ggplot(pcoa_data, aes(x = Axis.1, y = Axis.2, label = ccca_scale)) +
+  geom_point(aes(color=group_id, shape=group_id), size = 8, alpha = 0.6) +
+  geom_text(aes(color=group_id), hjust = 0, vjust = 2, size = 7, show.legend=FALSE) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, size = 1.5, aes(color=group_id, fill = group_id), show.legend=FALSE) +
+  theme_minimal() +
+  labs(
+    title = "Occipital Scalp",
+    x = paste0("PCoA1: ", round(percent_variance1, 2), "%"),
+    y = paste0("PCoA2: ", round(percent_variance2, 2), "%"),
+    color = "Cohort",
+    shape = "Cohort",
+    fill = "Cohort") +
+  scale_color_manual(values = c("CCCA" = "#35274A", "Control" = "#b8b8b8")) +
+  scale_fill_manual(values = c("CCCA" = "#35274A", "Control" = "#b8b8b8")) +
+  scale_shape_manual(values = c("CCCA" = 16, "Control" = 17)) +
+  theme(
+    plot.title = element_text(size = 24),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18))
+
+print(Oc_pcoa_plot)
+
+pcoa_data$group_id <- as.factor(pcoa_data$group_id)
+
+result <- adonis2(distance_matrix ~ group_id, data = pcoa_data, method = "bray")
+
+print(result)
+
+ggsave("figures/Figure1C.pdf",
+       plot = Oc_pcoa_plot, width = 10, height = 8)
+```
