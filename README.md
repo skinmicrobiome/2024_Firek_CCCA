@@ -1,6 +1,7 @@
 # Firek_CCCA_2024
 
-.rmd files: R codes to generate Figure 1A-1C, Figure 2, and eFigure 2. 
+.rmd files: R codes to generate Figure 1A-1C, Figure 2, and eFigure 2.
+
 Figure1.Rmd requires the following files:
 1. bracken_genus.biom
 2. data_files/all_ccca_data.csv
