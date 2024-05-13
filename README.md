@@ -1,8 +1,8 @@
 # Firek_CCCA_2024
 
 R codes to generate Figure 1A-1C, Figure 2, and eFigure 2. The scripts requires the following files:
-* bracken_genus.biom
-* data_files/all_ccca_data.csv
+* bracken_genus.biom - A biom file generated from the Kraken/Bracken metagenomics classification pipeline. It contains the taxonomic abundance data at the genus level for the analysed samples.
+* data_files/all_ccca_data.csv - Contains metadata information for samples analyzed in the study, with each row representing a sample and columns providing various attributes such as subject ID, CCCA severity scale, group ID, sampling site, library ID, and sequencing metrics (e.g., total reads, trimmed reads, human/non-human reads, and unclassified reads percentages).
 
 Figure1.Rmd
 * Figure 1A displays a stacked bar plot showing the relative abundance of different taxa across sample sites and cohorts.
