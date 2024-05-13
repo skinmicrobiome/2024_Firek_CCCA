@@ -14,7 +14,7 @@ Figure2.Rmd requires the following files:
 2. all_ccca_data.csv
 * Figure 2A displays boxplots of relative abundances of Corynebacterium for the vertex scalp site, grouped by cohort.
 * Figure 2B was generated using the Interactive Tree of Life (iTOL) tool (https://itol.embl.de/) and the dataset file data_files/dataset_heatmap_template.txt.
-** To recreate Figure 2B visit the iTOL website (https://itol.embl.de/) and upload the dataset file data_files/dataset_heatmap_template.txt.
+  * To recreate Figure 2B visit the iTOL website (https://itol.embl.de/) and upload the dataset file data_files/dataset_heatmap_template.txt.
 
 eFigure2.Rmd requires the following files:
 1. bracken_genus.biom
