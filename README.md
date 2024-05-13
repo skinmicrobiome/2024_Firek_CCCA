@@ -1,8 +1,8 @@
 # Firek_CCCA_2024
 
 .rmd files: R codes to generate Figure 1A-1C, Figure 2, and eFigure 2. The scripts requires the following files:
-1. bracken_genus.biom
-2. all_ccca_data.csv
+* bracken_genus.biom
+* data_files/all_ccca_data.csv
 
 Figure1.Rmd requires the following files:
 * Figure 1A displays a stacked bar plot showing the relative abundance of different taxa across sample sites and cohorts.
