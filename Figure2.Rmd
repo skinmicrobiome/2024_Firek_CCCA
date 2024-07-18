@@ -289,7 +289,7 @@ p = ggplot(merged_df, aes(x=group_id, y=corynebacterium_RA*100, color=group_id))
   scale_color_manual(values = custom_colors) +
   scale_fill_manual(values = custom_colors) +
   labs(title = "Corynebacterium", x = NULL, y = "Relative Abundance (%)", color = "Group", fill = "Group") +
-  theme_minimal() +
+  theme_bw() +
   guides(color = FALSE, fill = FALSE) +
   stat_compare_means(
     aes(label = p.signif),
@@ -302,7 +302,7 @@ p = ggplot(merged_df, aes(x=group_id, y=corynebacterium_RA*100, color=group_id))
     symnum.args = list(cutpoints = c(0.001, 0.005, 0.01), 
          symbols = c("*"))) +
   theme(
-    panel.grid.major = element_blank(),
+    #panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     plot.title = element_text(size = 20),
     axis.title = element_text(size = 16),
